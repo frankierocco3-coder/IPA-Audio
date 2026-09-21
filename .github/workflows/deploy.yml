@@ -1,0 +1,65 @@
+name: Publish audio to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Read-only by default. Only the job that actually publishes asks for more.
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # A full publish is ~305 MB of audio; the app's deploy once outran 10.
+    timeout-minutes: 20
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      contents: read      # read the repository being published
+      pages: write        # create and publish the Pages deployment
+      id-token: write     # OIDC token that deploy-pages exchanges with Pages
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 1              # no history needed to publish
+          persist-credentials: false  # don't leave a usable token on disk
+
+      - name: Configure Pages
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
+        with:
+          enablement: true
+
+      # Publish an ALLOW-LIST — audio clips and their JSON indexes, nothing
+      # else — so this README, the workflow, or any stray file can never
+      # reach the public site, whatever lands in the repository.
+      - name: Build allow-listed artifact
+        run: |
+          mkdir _site
+          find . -path ./_site -prune -o -path ./.git -prune -o -path ./.github -prune -o \
+               -type f \( -name '*.mp3' -o -name '*.json' \) -print |
+            while IFS= read -r f; do
+              mkdir -p "_site/$(dirname "$f")"
+              cp "$f" "_site/$f"
+            done
+          echo "publishing $(find _site -type f | wc -l) files"
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
+        with:
+          path: _site
+
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
